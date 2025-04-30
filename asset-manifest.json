@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/wasserstoff-AiInternTask/static/css/main.c1b480fe.css",
+    "main.js": "/wasserstoff-AiInternTask/static/js/main.e69dbe5e.js",
+    "static/js/453.c8d0e454.chunk.js": "/wasserstoff-AiInternTask/static/js/453.c8d0e454.chunk.js",
+    "index.html": "/wasserstoff-AiInternTask/index.html",
+    "main.c1b480fe.css.map": "/wasserstoff-AiInternTask/static/css/main.c1b480fe.css.map",
+    "main.e69dbe5e.js.map": "/wasserstoff-AiInternTask/static/js/main.e69dbe5e.js.map",
+    "453.c8d0e454.chunk.js.map": "/wasserstoff-AiInternTask/static/js/453.c8d0e454.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.c1b480fe.css",
+    "static/js/main.e69dbe5e.js"
+  ]
+}
