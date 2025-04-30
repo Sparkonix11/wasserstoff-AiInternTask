@@ -6,6 +6,8 @@ A creative AI-powered guessing game where players challenge themselves to create
 
 "What Beats Rock" is an innovative web game inspired by the classic "Rock, Paper, Scissors" but expanded infinitely using AI. Players start with "Rock" and must guess what beats the current word. For every correct guess, the new word becomes the target, and the chain continues. The game ends when a player guesses incorrectly or repeats a previously used word.
 
+Video - https://drive.google.com/file/d/1HbAUyf8ya-YvFqzgrZAPcwvjWjGGhipc/view?usp=sharing
+
 ## How to Play
 
 1. Start with the initial word "Rock"
