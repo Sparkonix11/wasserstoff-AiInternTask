@@ -17,6 +17,22 @@ class WordCounter(Base):
     count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+class WordPairCounter(Base):
+    """Model to store counters for word pairs (what beats what)."""
+    __tablename__ = "word_pair_counters"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    word1 = Column(String(255), nullable=False, index=True)  # The word that is beaten
+    word2 = Column(String(255), nullable=False, index=True)  # The word that beats
+    count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Composite index for fast lookups
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci'},
+    )
     
 class VerdictCache(Base):
     """Model to store AI verdicts for word pairs."""
@@ -104,7 +120,14 @@ class PopularWord(BaseModel):
     word: str
     count: int
 
+class PopularWordPair(BaseModel):
+    """Model for popular word pair statistics."""
+    beaten_word: str
+    beating_word: str
+    count: int
+
 class StatisticsResponse(BaseModel):
     """Response model for game statistics."""
     active_sessions: int
     popular_words: List[PopularWord]
+    popular_word_pairs: List[PopularWordPair]

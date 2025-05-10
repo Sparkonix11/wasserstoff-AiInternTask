@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, BackgroundTasks
 from typing import List, Optional, Dict
 from backend.core.game_logic import GameSession
-from backend.core.cache import get_global_count, increment_global_count
+from backend.core.cache import get_global_count, increment_global_count, get_word_pair_count, increment_word_pair_count
 from backend.core.redis_client import save_session, get_session, delete_session, get_active_session_count
 import redis.asyncio as redis
 from backend.db.database import get_db
@@ -15,9 +15,11 @@ from backend.db.models.models import (
     LeaderboardResponse,
     StatisticsResponse,
     WordCounter,
+    WordPairCounter,
     GameSession as DBGameSession,
     GameStatistics,
-    PopularWord
+    PopularWord,
+    PopularWordPair
 )
 import json
 import uuid
@@ -159,10 +161,59 @@ async def make_guess(request: GuessRequest, background_tasks: BackgroundTasks = 
         
         if result.valid:
             await increment_global_count(guess)
+            
+            # Get the previous word (the one being beaten)
+            previous_word = session.history_list[-2] if len(session.history_list) >= 2 else None
+            current_word = guess
+            
+            if previous_word:
+                # Debug log the word pair
+                logger.info(f"Incrementing word pair count: {previous_word} beaten by {current_word}")
+                
+                # Increment the pair count (previous_word is beaten by current_word)
+                pair_count = await increment_word_pair_count(previous_word, current_word)
+                logger.info(f"New pair count for {previous_word}:{current_word} = {pair_count}")
         
         global_count = await get_global_count(session.current_word)
         
-        word_count_message = f"{session.current_word} → {global_count} total guesses so far"
+        # Get the word pair count if there was a valid guess
+        pair_count_message = ""
+        if result.valid and len(session.history_list) >= 2:
+            previous_word = session.history_list[-2]
+            current_word = session.current_word
+            
+            try:
+                # Get pair count directly from database instead of cache
+                from sqlalchemy.orm import Session
+                from backend.db.database import get_db_context
+                with get_db_context() as db:
+                    pair_record = db.query(WordPairCounter).filter(
+                        WordPairCounter.word1 == previous_word.lower(),
+                        WordPairCounter.word2 == current_word.lower()
+                    ).first()
+                    
+                    # If found in database, use that count
+                    if pair_record:
+                        pair_count = pair_record.count
+                        logger.info(f"Retrieved pair count from DB for {previous_word}:{current_word} = {pair_count}")
+                    else:
+                        # Fallback to cache if not in DB
+                        pair_count = await get_word_pair_count(previous_word, current_word)
+                        logger.info(f"Retrieved pair count from cache for {previous_word}:{current_word} = {pair_count}")
+                
+                if pair_count > 0:
+                    pair_count_message = f"{previous_word} → {current_word}: {pair_count} times"
+            except Exception as e:
+                logger.error(f"Error retrieving pair count: {e}")
+                # Try cache as fallback
+                pair_count = await get_word_pair_count(previous_word, current_word)
+                if pair_count > 0:
+                    pair_count_message = f"{previous_word} → {current_word}: {pair_count} times"
+        
+        # Update the word count message to include pair information if available
+        word_count_message = f"{session.current_word} → {global_count} total guesses"
+        if pair_count_message:
+            word_count_message = f"{word_count_message} | {pair_count_message}"
         
         if result.game_over:
             if background_tasks:
@@ -208,6 +259,29 @@ async def save_finished_game_to_db(session_id: str, session: GameSession):
                 history=json.dumps(session.history_list)
             )
             db.add(db_session)
+            
+            # Save word pair counts to the database
+            history = session.history_list
+            if len(history) >= 2:
+                for i in range(len(history) - 1):
+                    beaten_word = history[i]
+                    beating_word = history[i+1]
+                    
+                    # Check if the pair already exists
+                    pair = db.query(WordPairCounter).filter(
+                        WordPairCounter.word1 == beaten_word.lower(),
+                        WordPairCounter.word2 == beating_word.lower()
+                    ).first()
+                    
+                    if pair:
+                        pair.count += 1
+                    else:
+                        pair = WordPairCounter(
+                            word1=beaten_word.lower(),
+                            word2=beating_word.lower(),
+                            count=1
+                        )
+                        db.add(pair)
             
             stats = db.query(GameStatistics).filter(GameStatistics.id == 1).first()
             if stats:
@@ -307,9 +381,35 @@ async def get_statistics(db: Session = Depends(get_db), background_tasks: Backgr
                 {"word": "Rock", "count": 87}
             ]
         
+        # Get popular word pairs
+        popular_word_pairs_db = db.query(
+            WordPairCounter.word1,
+            WordPairCounter.word2,
+            WordPairCounter.count
+        ).order_by(
+            desc(WordPairCounter.count)
+        ).limit(5).all()
+        
+        popular_word_pairs = [
+            {
+                "beaten_word": pair.word1, 
+                "beating_word": pair.word2, 
+                "count": pair.count
+            }
+            for pair in popular_word_pairs_db
+        ]
+        
+        if not popular_word_pairs:
+            popular_word_pairs = [
+                {"beaten_word": "rock", "beating_word": "paper", "count": 75},
+                {"beaten_word": "paper", "beating_word": "scissors", "count": 62},
+                {"beaten_word": "scissors", "beating_word": "rock", "count": 58}
+            ]
+        
         return {
             "active_sessions": active_sessions,
-            "popular_words": popular_words
+            "popular_words": popular_words,
+            "popular_word_pairs": popular_word_pairs
         }
     except Exception as e:
         logger.error(f"Error fetching statistics: {e}")
@@ -319,5 +419,10 @@ async def get_statistics(db: Session = Depends(get_db), background_tasks: Backgr
                 {"word": "Paper", "count": 125},
                 {"word": "Scissors", "count": 98},
                 {"word": "Rock", "count": 87}
+            ],
+            "popular_word_pairs": [
+                {"beaten_word": "rock", "beating_word": "paper", "count": 75},
+                {"beaten_word": "paper", "beating_word": "scissors", "count": 62},
+                {"beaten_word": "scissors", "beating_word": "rock", "count": 58}
             ]
         }

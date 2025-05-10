@@ -9,6 +9,7 @@ class LocalCache:
     def __init__(self):
         self.verdict_cache: Dict[str, bool] = {}
         self.global_counts: Dict[str, int] = {}
+        self.word_pair_counts: Dict[str, int] = {}
         self.cache_timestamps: Dict[str, float] = {}
         
 local_cache = LocalCache()
@@ -17,6 +18,7 @@ CACHE_TTL = 24 * 60 * 60
 
 VERDICT_KEY_PREFIX = "verdict:"
 COUNT_KEY_PREFIX = "count:"
+PAIR_COUNT_KEY_PREFIX = "pair_count:"
 
 async def get_verdict_from_cache(cache_key: str) -> Optional[bool]:
     """
@@ -77,6 +79,42 @@ async def increment_global_count(word: str) -> int:
         local_cache.global_counts[lowercase_word] = 1
     
     return count if count > 0 else local_cache.global_counts[lowercase_word]
+
+async def get_word_pair_count(word1: str, word2: str) -> int:
+    """
+    Get the count for a word pair from Redis or in-memory cache.
+    word1 is the word that gets beaten, word2 is the word that beats.
+    """
+    lowercase_word1 = word1.lower()
+    lowercase_word2 = word2.lower()
+    pair_key = f"{lowercase_word1}:{lowercase_word2}"
+    redis_key = f"{PAIR_COUNT_KEY_PREFIX}{pair_key}"
+    
+    count = await get_counter(redis_key)
+    if count > 0:
+        local_cache.word_pair_counts[pair_key] = count
+        return count
+    
+    return local_cache.word_pair_counts.get(pair_key, 0)
+
+async def increment_word_pair_count(word1: str, word2: str) -> int:
+    """
+    Increment the count for a word pair in Redis and in-memory cache.
+    word1 is the word that gets beaten, word2 is the word that beats.
+    """
+    lowercase_word1 = word1.lower()
+    lowercase_word2 = word2.lower()
+    pair_key = f"{lowercase_word1}:{lowercase_word2}"
+    redis_key = f"{PAIR_COUNT_KEY_PREFIX}{pair_key}"
+    
+    count = await increment_counter(redis_key)
+    
+    if pair_key in local_cache.word_pair_counts:
+        local_cache.word_pair_counts[pair_key] += 1
+    else:
+        local_cache.word_pair_counts[pair_key] = 1
+    
+    return count if count > 0 else local_cache.word_pair_counts[pair_key]
 
 async def clean_expired_cache():
     """Remove expired entries from the in-memory cache."""
